@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Particle Universe</title>
+    <style>
+        :root {
+            --glass-bg: rgba(20, 20, 30, 0.6);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --zoom-accent: #a855f7;
+        }
+
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #050508; 
+            background-image: radial-gradient(circle at center, #111 0%, #000 100%);
+            color: var(--text-main); 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            user-select: none;
+        }
+
+        #container { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh; 
+            z-index: 1;
+        }
+
+        #video { display: none; }
+
+        #ui { 
+            position: absolute; 
+            top: 20px; 
+            left: 20px; 
+            z-index: 10; 
+            pointer-events: none; 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 20px; 
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            min-width: 260px;
+            transition: opacity 0.5s ease;
+        }
+
+        .ui-header {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--accent);
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .ui-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 15px;
+            transition: color 0.3s;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid var(--glass-border);
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        .instructions span {
+            color: var(--text-main);
+            font-weight: 500;
+        }
+
+        .ui-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 15px;
+            width: 100%;
+            pointer-events: auto;
+            transition: background 0.2s, transform 0.1s;
+        }
+        
+        .ui-btn:hover { background: rgba(255, 255, 255, 0.2); }
+        .ui-btn:active { transform: scale(0.98); }
+
+        #start-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(5, 5, 8, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease;
+        }
+
+        #start-btn { 
+            padding: 16px 40px; 
+            font-size: 18px; 
+            font-weight: 600;
+            cursor: pointer; 
+            background: linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%);
+            color: #fff; 
+            border: none; 
+            border-radius: 30px; 
+            box-shadow: 0 10px 25px rgba(56, 189, 248, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        #start-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 35px rgba(56, 189, 248, 0.6);
+        }
+
+        #loading-text {
+            margin-top: 20px;
+            color: var(--text-muted);
+            font-size: 14px;
+            letter-spacing: 1px;
+            display: none;
+        }
+
+        .hidden { opacity: 0 !important; pointer-events: none !important; }
+
+        .hand-cursor {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--accent);
+            box-shadow: 0 0 15px var(--accent);
+            transform: translate(-50%, -50%);
+            z-index: 5;
+            pointer-events: none;
+            display: none;
+            transition: width 0.2s, height 0.2s, background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+        
+        .hand-cursor.pinching {
+            width: 10px;
+            height: 10px;
+            background-color: #ef4444;
+            border-color: #ef4444;
+            box-shadow: 0 0 20px #ef4444;
+        }
+
+        .hand-cursor.zooming {
+            background-color: var(--zoom-accent);
+            border-color: var(--zoom-accent);
+            box-shadow: 0 0 25px var(--zoom-accent);
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="start-overlay">
+        <button id="start-btn">Initialize Universe</button>
+        <div id="loading-text">Loading AI Models & Physics Engine...</div>
+    </div>
+    
+    <div id="ui" class="hidden">
+        <div class="ui-header">Particle Engine</div>
+        <div class="ui-row">
+            <span>Shape</span>
+            <span id="shape-label" style="color: var(--accent); font-weight: 600;">Torus</span>
+        </div>
+        <div class="ui-row">
+            <span>Tracking</span>
+            <span id="status">Searching...</span>
+        </div>
+        <div class="instructions">
+            • <span>1-Hand Index:</span> Repel particles<br>
+            • <span>1-Hand Pinch:</span> Create gravity well<br>
+            • <span>2-Hand Pinch:</span> Move apart to Zoom<br>
+            • <span>Close Fist:</span> Morph to next shape
+        </div>
+        <button id="flip-camera-btn" class="ui-btn">Flip Camera Feed</button>
+    </div>
+
+    <div id="hand-cursor-1" class="hand-cursor"></div>
+    <div id="hand-cursor-2" class="hand-cursor"></div>
+    <div id="container"></div>
+    <video id="video" autoplay playsinline></video>
+
+    <script>
+        const MAX_PARTICLES = 100000;
+        let activeParticles = 30000;
+        
+        let scene, camera, renderer, particles, geometry;
+        
+        let basePositions = new Float32Array(MAX_PARTICLES * 3);
+        let currentPositions = new Float32Array(MAX_PARTICLES * 3);
+        let targetColors = new Float32Array(MAX_PARTICLES * 3);
+        let currentColors = new Float32Array(MAX_PARTICLES * 3);
+        let particlePhases = new Float32Array(MAX_PARTICLES);
+        
+        const shapes = ['torus', 'sphere', 'dna', 'galaxy', 'mobius', 'supernova', 'lotus', 'butterfly', 'blackhole', 'vortex'];
+        let currentShapeIndex = 0;
+        
+        let isFist = false;
+        let isPinching = false;
+        let lastFistTime = 0;
+        let handWorldPos = new THREE.Vector3(0, 0, 1000);
+        let handDetected = false;
+        let isCameraFlipped = true;
+        
+        let targetCameraZ = 45; 
+        let isZooming = false;
+        let initialZoomDist = 0;
+        let initialCameraZ = 45;
+        
+        let time = 0;
+
+        function createGlowingTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+            gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050508, 0.015);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = targetCameraZ;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            geometry = new THREE.BufferGeometry();
+            
+            for (let i = 0; i < MAX_PARTICLES; i++) {
+                currentPositions[i * 3] = (Math.random() - 0.5) * 200;
+                currentPositions[i * 3 + 1] = (Math.random() - 0.5) * 200;
+                currentPositions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+                currentColors[i * 3] = 1; currentColors[i * 3 + 1] = 1; currentColors[i * 3 + 2] = 1;
+                particlePhases[i] = Math.random() * Math.PI * 2;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(currentColors, 3));
+            geometry.setDrawRange(0, activeParticles);
+
+            const material = new THREE.PointsMaterial({
+                size: 0.6, vertexColors: true, transparent: true, opacity: 0.9,
+                map: createGlowingTexture(), blending: THREE.AdditiveBlending, depthWrite: false
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            generateShape(shapes[currentShapeIndex]);
+            animate();
+        }
+
+        function generateShape(type) {
+            document.getElementById('shape-label').innerText = type.charAt(0).toUpperCase() + type.slice(1);
+            
+            activeParticles = (type === 'lotus') ? 100000 : 30000;
+            geometry.setDrawRange(0, activeParticles);
+            
+            for (let i = 0; i < activeParticles; i++) {
+                let x, y, z, r, g, b;
+                const idx = i * 3;
+                const iNorm = i / activeParticles;
+
+                if (type === 'dna') {
+                    const height = 40; const loops = 4; const yPos = (iNorm - 0.5) * height;
+                    const angle = yPos * loops * 0.5; const radius = 6;
+                    if (Math.random() > 0.3) {
+                        const strandOffset = Math.random() > 0.5 ? 0 : Math.PI;
+                        x = Math.cos(angle + strandOffset) * radius; z = Math.sin(angle + strandOffset) * radius; y = yPos;
+                        r = strandOffset === 0 ? 0.9 : 0.2; g = 0.4; b = strandOffset === 0 ? 0.2 : 0.9;
+                    } else {
+                        const rungAngle = Math.floor(yPos * 2) / 2 * loops * 0.5;
+                        const rungRadius = (Math.random() * 2 - 1) * radius;
+                        x = Math.cos(rungAngle) * rungRadius; z = Math.sin(rungAngle) * rungRadius; y = Math.floor(yPos * 2) / 2;
+                        r = 1.0; g = 1.0; b = 1.0;
+                    }
+                } 
+                else if (type === 'torus') {
+                    const t = iNorm * Math.PI * 2 * 10; const p = 3; const q = 4; const rScale = 8;
+                    const rad = 2 + Math.cos(q * t);
+                    x = rScale * rad * Math.cos(p * t); y = rScale * rad * Math.sin(p * t); z = rScale * Math.sin(q * t);
+                    x += (Math.random() - 0.5) * 2; y += (Math.random() - 0.5) * 2; z += (Math.random() - 0.5) * 2;
+                    r = 1.0; g = 0.1 + (Math.sin(t) * 0.5 + 0.5); b = 0.3;
+                }
+                else if (type === 'sphere') {
+                    const phi = Math.acos(-1 + (2 * i) / activeParticles);
+                    const theta = Math.sqrt(activeParticles * Math.PI) * phi;
+                    const radius = 18;
+                    x = radius * Math.cos(theta) * Math.sin(phi); y = radius * Math.sin(theta) * Math.sin(phi); z = radius * Math.cos(phi);
+                    r = 0.1; g = 0.8; b = 0.6;
+                }
+                else if (type === 'galaxy') {
+                    const radius = Math.pow(Math.random(), 2) * 40;
+                    const angle = radius * 0.5 + (Math.random() * 0.5);
+                    const armOffset = Math.random() > 0.5 ? 0 : Math.PI;
+                    x = Math.cos(angle + armOffset) * radius;
+                    z = Math.sin(angle + armOffset) * radius;
+                    y = (Math.random() - 0.5) * (30 / (radius + 1));
+                    
+                    const color = new THREE.Color().setHSL(0.6 + (radius / 80), 1.0, 0.5);
+                    r = color.r; g = color.g; b = color.b;
+                }
+                else if (type === 'mobius') {
+                    const u = iNorm * Math.PI * 2;
+                    const v = (Math.random() - 0.5) * 8;
+                    const radius = 15;
+                    x = (radius + v * Math.cos(u / 2)) * Math.cos(u);
+                    y = v * Math.sin(u / 2);
+                    z = (radius + v * Math.cos(u / 2)) * Math.sin(u);
+                    
+                    const color = new THREE.Color().setHSL(iNorm, 1.0, 0.6);
+                    r = color.r; g = color.g; b = color.b;
+                }
+                else if (type === 'supernova') {
+                    const radius = 5 + Math.random() * 25;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    x = radius * Math.sin(phi) * Math.cos(theta);
+                    y = radius * Math.sin(phi) * Math.sin(theta);
+                    z = radius * Math.cos(phi);
+                    
+                    const distance = Math.sqrt(x*x + y*y + z*z);
+                    r = 1.0; 
+                    g = Math.max(0, 1 - (distance / 15)); 
+                    b = Math.max(0, 0.5 - (distance / 30));
+                }
+                else if (type === 'lotus') {
+                    const rand = Math.random();
+                    
+                    if (rand < 0.05) { 
+                        const podR = Math.sqrt(Math.random()) * 3.0;
+                        const podAng = Math.random() * Math.PI * 2;
+                        x = Math.cos(podAng) * podR;
+                        z = Math.sin(podAng) * podR;
+                        y = 1.5 + Math.random() * 1.0; 
+                        r = 0.95; g = 0.85; b = 0.2; 
+                    } else {
+                        const petalNorm = (rand - 0.05) / 0.95;
+                        const layers = 5;
+                        const layerNorm = Math.sqrt(petalNorm); 
+                        let layer = Math.floor(layerNorm * layers);
+                        if (layer >= layers) layer = layers - 1;
+                        
+                        const numPetals = 5 + layer * 3; 
+                        const petalIdx = Math.floor(Math.random() * numPetals);
+                        
+                        const t = Math.random(); 
+                        const pLen = 7 + layer * 3.0;
+                        const pZ = t * pLen;
+                        
+                        const width = Math.pow(Math.sin(t * Math.PI), 0.8) * (3.5 + layer * 1.0);
+                        
+                        let rx = (Math.random() * 2 - 1);
+                        rx = Math.sign(rx) * Math.pow(Math.abs(rx), 0.7);
+                        const pX = rx * width;
+                        
+                        const pYThickness = (Math.random() - 0.5) * 0.3;
+                        
+                        const pitch = (1 - (layer / (layers - 1))) * (Math.PI * 0.35); 
+                        
+                        const rotY = pZ * Math.sin(pitch);
+                        const rotZ = pZ * Math.cos(pitch);
+                        
+                        const baseR = 2.5 + layer * 1.2;
+                        const finalR = baseR + rotZ;
+                        
+                        const angleOffset = layer * (Math.PI / numPetals);
+                        const baseAngle = (petalIdx / numPetals) * Math.PI * 2 + angleOffset;
+                        const angle = baseAngle + Math.atan2(pX, finalR);
+                        const trueR = Math.sqrt(finalR * finalR + pX * pX);
+                        
+                        x = Math.cos(angle) * trueR;
+                        z = Math.sin(angle) * trueR;
+                        
+                        const cup = Math.pow(Math.abs(pX / width), 2) * 1.5;
+                        y = rotY - (layer * 0.8) + Math.pow(t, 2) * 2 + pYThickness + cup; 
+                        
+                        r = 1.0;
+                        g = 0.15 + t * 0.5 + (layer * 0.08);
+                        b = 0.45 + t * 0.3 + (layer * 0.08);
+                    }
+                }
+                else if (type === 'butterfly') {
+                    const t = Math.random() * Math.PI * 24; 
+                    const rBase = Math.exp(Math.cos(t)) - 2 * Math.cos(4 * t) + Math.pow(Math.sin(t / 12), 5);
+                    const scale = 4.5;
+                    
+                    let flatX = scale * rBase * Math.sin(t);
+                    let flatY = scale * rBase * Math.cos(t);
+                    
+                    let wingDihedral = Math.abs(flatX) * 0.6;
+                    let aerodynamicCamber = Math.sin(flatX * 0.4) * 1.5;
+                    
+                    x = flatX + (Math.random() - 0.5) * 0.8;
+                    y = flatY + (Math.random() - 0.5) * 0.8;
+                    z = wingDihedral + aerodynamicCamber + (Math.random() - 0.5) * 0.8;
+                    
+                    r = 0.6 + Math.sin(t) * 0.4; 
+                    g = 0.3; 
+                    b = 1.0 - Math.sin(t) * 0.4;
+                }
+                else if (type === 'blackhole') {
+                    if (Math.random() > 0.85) {
+                        const zPos = (Math.random() - 0.5) * 70;
+                        const rJet = Math.random() * 2.5 * (1 - Math.abs(zPos) / 35);
+                        const ang = Math.random() * Math.PI * 2;
+                        x = Math.cos(ang) * rJet;
+                        z = Math.sin(ang) * rJet;
+                        y = zPos;
+                        r = 0.4; g = 0.8; b = 1.0;
+                    } else {
+                        const rDisk = 7 + Math.pow(Math.random(), 2) * 28;
+                        const ang = Math.random() * Math.PI * 2;
+                        x = Math.cos(ang) * rDisk;
+                        z = Math.sin(ang) * rDisk;
+                        y = (Math.random() - 0.5) * (18 / (rDisk - 6));
+                        r = 1.0; g = 0.5 + (8 / rDisk); b = 0.1;
+                    }
+                }
+                else if (type === 'vortex') {
+                    const h = (iNorm - 0.5) * 60;
+                    const rad = 2 + Math.pow(Math.abs(h), 1.1) * 0.25;
+                    const ang = h * 0.4 + (Math.random() * 0.5);
+                    x = Math.cos(ang) * rad;
+                    y = h;
+                    z = Math.sin(ang) * rad;
+                    r = 0.1; g = 1.0 - (Math.abs(h) / 35); b = 0.7 + (Math.abs(h) / 70);
+                }
+
+                basePositions[idx] = x; basePositions[idx + 1] = y; basePositions[idx + 2] = z;
+                targetColors[idx] = r; targetColors[idx + 1] = g; targetColors[idx + 2] = b;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.015;
+
+            camera.position.z += (targetCameraZ - camera.position.z) * 0.08;
+
+            const positions = geometry.attributes.position.array;
+            const colors = geometry.attributes.color.array;
+            
+            const interactionRadius = 15.0;
+            const interactionRadiusSq = interactionRadius * interactionRadius;
+            const forceMultiplier = isPinching ? -0.8 : 1.2;
+
+            const currentShape = shapes[currentShapeIndex];
+
+            if (currentShape === 'lotus') {
+                let targetRotX = Math.PI / 2;
+                let diffX = (targetRotX - particles.rotation.x) % (Math.PI * 2);
+                if (diffX < -Math.PI) diffX += Math.PI * 2;
+                else if (diffX > Math.PI) diffX -= Math.PI * 2;
+                
+                let diffZ = (0 - particles.rotation.z) % (Math.PI * 2);
+                if (diffZ < -Math.PI) diffZ += Math.PI * 2;
+                else if (diffZ > Math.PI) diffZ -= Math.PI * 2;
+
+                particles.rotation.x += diffX * 0.05;
+                particles.rotation.y += 0.015; 
+                particles.rotation.z += diffZ * 0.05;
+            } else {
+                let rotX = Math.sin(time * 0.5) * 0.005;
+                let rotY = 0.005;
+                
+                if (currentShape === 'dna' || currentShape === 'galaxy') rotY = 0.01; 
+                if (currentShape === 'mobius' || currentShape === 'blackhole' || currentShape === 'vortex') { rotX = 0.01; rotY = 0.01; }
+                if (currentShape === 'butterfly') { rotX = 0.002; rotY = 0.008; }
+
+                particles.rotation.x += rotX;
+                particles.rotation.y += rotY;
+                
+                let diffZ = (0 - particles.rotation.z) % (Math.PI * 2);
+                if (diffZ < -Math.PI) diffZ += Math.PI * 2;
+                else if (diffZ > Math.PI) diffZ -= Math.PI * 2;
+                particles.rotation.z += diffZ * 0.05;
+            }
+
+            const euler = new THREE.Euler(-particles.rotation.x, -particles.rotation.y, -particles.rotation.z, 'XYZ');
+            const localHandPos = handWorldPos.clone().applyEuler(euler);
+
+            for (let i = 0; i < activeParticles; i++) {
+                const idx = i * 3;
+                const phase = particlePhases[i] + time * 2;
+                const breathOffset = Math.sin(phase) * 0.4;
+
+                const targetX = basePositions[idx] + (basePositions[idx] !== 0 ? (basePositions[idx]/Math.abs(basePositions[idx])) * breathOffset : 0);
+                const targetY = basePositions[idx+1] + breathOffset;
+                const targetZ = basePositions[idx+2] + breathOffset;
+
+                let currX = positions[idx] + (targetX - positions[idx]) * 0.04;
+                let currY = positions[idx+1] + (targetY - positions[idx+1]) * 0.04;
+                let currZ = positions[idx+2] + (targetZ - positions[idx+2]) * 0.04;
+
+                if (handDetected && !isZooming) {
+                    const dx = currX - localHandPos.x;
+                    const dy = currY - localHandPos.y;
+                    const dz = currZ - localHandPos.z;
+                    const distSq = dx*dx + dy*dy + dz*dz;
+
+                    if (distSq < interactionRadiusSq && distSq > 0.1) {
+                        const dist = Math.sqrt(distSq);
+                        const force = (interactionRadius - dist) / interactionRadius; 
+                        
+                        currX += (dx / dist) * force * forceMultiplier;
+                        currY += (dy / dist) * force * forceMultiplier;
+                        currZ += (dz / dist) * force * forceMultiplier;
+
+                        colors[idx] = 1.0;
+                        colors[idx+1] = isPinching ? 0.2 : 0.8;
+                        colors[idx+2] = isPinching ? 0.2 : 1.0;
+                    } else {
+                        colors[idx] += (targetColors[idx] - colors[idx]) * 0.05;
+                        colors[idx+1] += (targetColors[idx+1] - colors[idx+1]) * 0.05;
+                        colors[idx+2] += (targetColors[idx+2] - colors[idx+2]) * 0.05;
+                    }
+                } else {
+                    colors[idx] += (targetColors[idx] - colors[idx]) * 0.05;
+                    colors[idx+1] += (targetColors[idx+1] - colors[idx+1]) * 0.05;
+                    colors[idx+2] += (targetColors[idx+2] - colors[idx+2]) * 0.05;
+                }
+
+                positions[idx] = currX; positions[idx+1] = currY; positions[idx+2] = currZ;
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.color.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        function initHandTracking() {
+            const videoElement = document.getElementById('video');
+            const statusLabel = document.getElementById('status');
+            const cursor1 = document.getElementById('hand-cursor-1');
+            const cursor2 = document.getElementById('hand-cursor-2');
+
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.65,
+                minTrackingConfidence: 0.65
+            });
+            
+            const checkPinch = (landmarks) => {
+                const dx = landmarks[4].x - landmarks[8].x;
+                const dy = landmarks[4].y - landmarks[8].y;
+                return Math.sqrt(dx*dx + dy*dy) < 0.09;
+            };
+
+            hands.onResults((results) => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    handDetected = true;
+                    
+                    const landmarks1 = results.multiHandLandmarks[0];
+                    let h1Pinching = checkPinch(landmarks1);
+                    let h2Pinching = false;
+                    
+                    cursor1.style.display = "block";
+                    const indexX1 = isCameraFlipped ? 1 - landmarks1[8].x : landmarks1[8].x;
+                    cursor1.style.left = `${indexX1 * window.innerWidth}px`;
+                    cursor1.style.top = `${landmarks1[8].y * window.innerHeight}px`;
+
+                    const vec = new THREE.Vector3((indexX1 * 2) - 1, -(landmarks1[8].y * 2) + 1, 0.5);
+                    vec.unproject(camera);
+                    vec.sub(camera.position).normalize();
+                    const distance = -camera.position.z / vec.z; 
+                    handWorldPos.copy(camera.position).add(vec.multiplyScalar(distance));
+
+                    if (results.multiHandLandmarks.length === 2) {
+                        const landmarks2 = results.multiHandLandmarks[1];
+                        h2Pinching = checkPinch(landmarks2);
+                        
+                        cursor2.style.display = "block";
+                        const indexX2 = isCameraFlipped ? 1 - landmarks2[8].x : landmarks2[8].x;
+                        cursor2.style.left = `${indexX2 * window.innerWidth}px`;
+                        cursor2.style.top = `${landmarks2[8].y * window.innerHeight}px`;
+                        
+                        if (h1Pinching && h2Pinching) {
+                            const dist = Math.hypot(landmarks1[8].x - landmarks2[8].x, landmarks1[8].y - landmarks2[8].y);
+                            
+                            if (!isZooming) {
+                                isZooming = true;
+                                initialZoomDist = dist;
+                                initialCameraZ = targetCameraZ;
+                            } else {
+                                const delta = dist - initialZoomDist;
+                                targetCameraZ = initialCameraZ - (delta * 160); 
+                                targetCameraZ = Math.max(25, Math.min(targetCameraZ, 150)); 
+                            }
+                            
+                            statusLabel.innerText = "Zooming Universe";
+                            statusLabel.style.color = "var(--zoom-accent)";
+                            cursor1.classList.add('zooming');
+                            cursor2.classList.add('zooming');
+                        } else {
+                            isZooming = false;
+                            statusLabel.innerText = "Tracking 2 Hands";
+                            statusLabel.style.color = "var(--accent)";
+                            cursor1.classList.remove('zooming');
+                            cursor2.classList.remove('zooming');
+                        }
+                        
+                        if (h2Pinching && !isZooming) cursor2.classList.add('pinching');
+                        else cursor2.classList.remove('pinching');
+
+                    } else {
+                        isZooming = false;
+                        cursor2.style.display = "none";
+                        cursor1.classList.remove('zooming');
+                        statusLabel.innerText = "Tracking 1 Hand";
+                        statusLabel.style.color = "var(--accent)";
+                    }
+
+                    isPinching = h1Pinching && !isZooming;
+                    if (isPinching) cursor1.classList.add('pinching');
+                    else cursor1.classList.remove('pinching');
+
+                    if (!isZooming) {
+                        const isFingersCurled = landmarks1[8].y > landmarks1[6].y && 
+                                                landmarks1[12].y > landmarks1[10].y && 
+                                                landmarks1[16].y > landmarks1[14].y;
+                        
+                        const now = Date.now();
+                        if (isFingersCurled && !isFist) {
+                            isFist = true;
+                        } else if (!isFingersCurled && isFist) {
+                            isFist = false;
+                            if (now - lastFistTime > 1200) { 
+                                currentShapeIndex = (currentShapeIndex + 1) % shapes.length;
+                                generateShape(shapes[currentShapeIndex]);
+                                lastFistTime = now;
+                                
+                                document.getElementById('shape-label').style.opacity = 0;
+                                setTimeout(() => document.getElementById('shape-label').style.opacity = 1, 150);
+                            }
+                        }
+                    }
+                } else {
+                    handDetected = false;
+                    isZooming = false;
+                    isPinching = false;
+                    statusLabel.innerText = "Searching for Hands...";
+                    statusLabel.style.color = "var(--text-muted)";
+                    cursor1.style.display = "none";
+                    cursor2.style.display = "none";
+                }
+            });
+
+            const cameraUtils = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 640, height: 480
+            });
+            
+            cameraUtils.start().then(() => {
+                document.getElementById('start-overlay').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('start-overlay').classList.add('hidden');
+                    document.getElementById('ui').classList.remove('hidden');
+                }, 500);
+            });
+        }
+
+        document.getElementById('start-btn').addEventListener('click', (e) => {
+            e.target.style.display = 'none';
+            document.getElementById('loading-text').style.display = 'block';
+            initThree();
+            initHandTracking();
+        });
+
+        document.getElementById('flip-camera-btn').addEventListener('click', () => {
+            isCameraFlipped = !isCameraFlipped;
+        });
+    </script>
+</body>
+</html>
